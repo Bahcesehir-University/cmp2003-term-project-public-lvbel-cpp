@@ -2,6 +2,9 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <iostream>
+#include <fstream>
+#include <algorithm>
 
 struct ZoneCount {
     std::string zone;
@@ -22,3 +25,13 @@ private:
     };
 
     std::unordered_map<std::string, ZoneStats> data;
+
+    void processLine(const std::string& line);
+
+public:
+    void ingestStdin();
+    void ingestFile(const std::string& path);
+
+    std::vector<ZoneCount> topZones(int k = 10);
+    std::vector<SlotCount> topBusySlots(int k = 10);
+};
