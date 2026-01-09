@@ -2,9 +2,6 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <iostream>
-#include <fstream>
-#include <algorithm>
 
 struct ZoneCount {
     std::string zone;
@@ -18,20 +15,17 @@ struct SlotCount {
 };
 
 class TripAnalyzer {
+public:
+    void ingestFile(const std::string& csvFilePath);
+    std::vector<ZoneCount> topZones(int k = 10) const;
+    std::vector<SlotCount> topBusySlots(int k = 10) const;
+
 private:
-    struct ZoneStats {
-        long long total = 0;
-        long long hours[24] = {};
+    struct ZoneStatistics {
+        long long totalTrips = 0;
+        long long tripsByHour[24] = {};
     };
 
-    std::unordered_map<std::string, ZoneStats> data;
-
-    void processLine(const std::string& line);
-
-public:
-    void ingestStdin();
-    void ingestFile(const std::string& path);
-
-    std::vector<ZoneCount> topZones(int k = 10);
-    std::vector<SlotCount> topBusySlots(int k = 10);
+    std::unordered_map<std::string, ZoneStatistics> zoneDataMap;
+    void processCsvLine(const std::string& lineContent);
 };
