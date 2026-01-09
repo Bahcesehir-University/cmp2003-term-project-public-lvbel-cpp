@@ -3,108 +3,89 @@
 #include <algorithm>
 #include <iostream>
 
-void TripAnalyzer::processCsvLine(const std::string& lineContent) {
-    if (lineContent.empty()) return;
+void TripAnalyzer::ingestFile(const std::string& csvPath) {
+    std::ifstream file(csvPath);
+    if (!file.is_open()) return;
 
-    size_t firstCommaIndex = lineContent.find(',');
-    if (firstCommaIndex == std::string::npos) return;
+    std::string line;
+    if (!std::getline(file, line)) return;
 
-    size_t secondCommaIndex = lineContent.find(',', firstCommaIndex + 1);
-    if (secondCommaIndex == std::string::npos) return;
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
 
-    if (secondCommaIndex <= firstCommaIndex + 1) return;
-    std::string zoneIdentifier = lineContent.substr(firstCommaIndex + 1, secondCommaIndex - firstCommaIndex - 1);
+size_t c1 = line.find(',');
+if (c1 == std::string::npos) continue;
+size_t c2 = line.find(',', c1 + 1);
+if (c2 == std::string::npos) continue;
+if (c2 <= c1 + 1) continue;
+std::string zone = line.substr(c1 + 1, c2 - c1 - 1);
+size_t timeStart = c2 + 1;
+if (timeStart >= line.size()) continue;
+size_t spacePos = line.find(' ', timeStart);
+if (spacePos == std::string::npos) continue;
+size_t hourPos = spacePos + 1;
+if (hourPos >= line.size()) continue;
+size_t colonPos = line.find(':', hourPos);
+if (colonPos == std::string::npos) continue;
+std::string hourStr = line.substr(hourPos, colonPos - hourPos);
+if (hourStr.empty()) continue;
+    int hour = 0;
+    try {
+            hour = std::stoi(hourStr);
+        } catch (...) {
+            continue;
+        }
 
-    size_t timeSearchStartIndex = secondCommaIndex + 1;
-    if (timeSearchStartIndex >= lineContent.size()) return;
+        if (hour < 0 || hour > 23) continue;
 
-    char firstCharAfterSecondComma = lineContent[timeSearchStartIndex];
-    bool isStandardFormat = (firstCharAfterSecondComma >= '0' && firstCharAfterSecondComma <= '9');
-
-    if (!isStandardFormat) {
-        size_t thirdCommaIndex = lineContent.find(',', secondCommaIndex + 1);
-        if (thirdCommaIndex == std::string::npos) return;
-        timeSearchStartIndex = thirdCommaIndex + 1;
-    }
-
-    if (timeSearchStartIndex >= lineContent.size()) return;
-
-    size_t spacePosition = lineContent.find(' ', timeSearchStartIndex);
-    if (spacePosition == std::string::npos) return;
-
-    if (spacePosition + 2 >= lineContent.size()) return;
-
-    char firstHourDigit = lineContent[spacePosition + 1];
-    char secondHourDigit = lineContent[spacePosition + 2];
-
-    int pickupHour = 0;
-
-    if (lineContent[spacePosition + 2] == ':') {
-        if (firstHourDigit < '0' || firstHourDigit > '9') return;
-        pickupHour = firstHourDigit - '0';
-    } else {
-        if (firstHourDigit < '0' || firstHourDigit > '9' || secondHourDigit < '0' || secondHourDigit > '9') return;
-        pickupHour = (firstHourDigit - '0') * 10 + (secondHourDigit - '0');
-    }
-
-    if (pickupHour < 0 || pickupHour > 23) return;
-
-    ZoneStatistics& statistics = zoneDataMap[zoneIdentifier];
-    statistics.totalTrips++;
-    statistics.tripsByHour[pickupHour]++;
-}
-
-void TripAnalyzer::ingestFile(const std::string& csvFilePath) {
-    std::ifstream inputFileStream(csvFilePath);
-    if (!inputFileStream.is_open()) return;
-
-    std::string currentLine;
-    if (!std::getline(inputFileStream, currentLine)) return;
-
-    while (std::getline(inputFileStream, currentLine)) {
-        processCsvLine(currentLine);
+        m_zoneCounts[zone]++;
+        m_zoneHourlyCounts[zone].hours[hour]++;
     }
 }
-
 std::vector<ZoneCount> TripAnalyzer::topZones(int k) const {
-    std::vector<ZoneCount> zoneResults;
-    zoneResults.reserve(zoneDataMap.size());
+    std::vector<ZoneCount> results;
+    results.reserve(m_zoneCounts.size());
 
-    for (const auto& mapEntry : zoneDataMap) {
-        zoneResults.push_back({mapEntry.first, mapEntry.second.totalTrips});
+    for (const auto& kv : m_zoneCounts) {
+        results.push_back({kv.first, kv.second});
     }
-
-    std::sort(zoneResults.begin(), zoneResults.end(), [](const ZoneCount& firstItem, const ZoneCount& secondItem) {
-        if (firstItem.count != secondItem.count) return firstItem.count > secondItem.count;
-        return firstItem.zone < secondItem.zone;
+    std::sort(results.begin(), results.end(), [](const ZoneCount& a, const ZoneCount& b) {
+        if (a.count != b.count) {
+            return a.count > b.count;
+        }
+        return a.zone < b.zone;
     });
 
-    if (k >= 0 && (size_t)k < zoneResults.size()) {
-        zoneResults.resize(k);
+    if ((int)results.size() > k) {
+        results.resize(k);
     }
-    return zoneResults;
+    return results;
 }
-
 std::vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
-    std::vector<SlotCount> slotResults;
-    slotResults.reserve(zoneDataMap.size() * 5);
+    std::vector<SlotCount> results;
+    results.reserve(m_zoneHourlyCounts.size() * 5);
 
-    for (const auto& mapEntry : zoneDataMap) {
-        for (int hourIndex = 0; hourIndex < 24; ++hourIndex) {
-            if (mapEntry.second.tripsByHour[hourIndex] > 0) {
-                slotResults.push_back({mapEntry.first, hourIndex, mapEntry.second.tripsByHour[hourIndex]});
+    for (const auto& kv : m_zoneHourlyCounts) {
+        const std::string& zone = kv.first;
+        const auto& tracker = kv.second;
+
+        for (int h = 0; h < 24; h++) {
+            if (tracker.hours[h] > 0) {
+                results.push_back({zone, h, tracker.hours[h]});
             }
         }
     }
-
-    std::sort(slotResults.begin(), slotResults.end(), [](const SlotCount& firstItem, const SlotCount& secondItem) {
-        if (firstItem.count != secondItem.count) return firstItem.count > secondItem.count;
-        if (firstItem.zone != secondItem.zone) return firstItem.zone < secondItem.zone;
-        return firstItem.hour < secondItem.hour;
+    std::sort(results.begin(), results.end(), [](const SlotCount& a, const SlotCount& b) {
+        if (a.count != b.count) {
+            return a.count > b.count;
+        }
+        if (a.zone != b.zone) {
+            return a.zone < b.zone;
+        }
+        return a.hour < b.hour;
     });
-
-    if (k >= 0 && (size_t)k < slotResults.size()) {
-        slotResults.resize(k);
+    if ((int)results.size() > k) {
+        results.resize(k);
     }
-    return slotResults;
+    return results;
 }
