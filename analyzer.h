@@ -15,15 +15,10 @@ struct SlotCount {
 };
 
 class TripAnalyzer {
-public:
-    void ingestFile(const std::string& csvPath);
-    std::vector<ZoneCount> topZones(int k = 10) const;
-    std::vector<SlotCount> topBusySlots(int k = 10) const;
-
 private:
-    std::unordered_map<std::string, long long> m_zoneCounts;
-    struct HourTracker {
-        long long hours[24] = {0};
+    struct ZoneStats {
+        long long total = 0;
+        long long hours[24] = {};
     };
-    std::unordered_map<std::string, HourTracker> m_zoneHourlyCounts;
-};
+
+    std::unordered_map<std::string, ZoneStats> data;
