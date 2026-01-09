@@ -1,110 +1,110 @@
 #include "analyzer.h"
+#include <fstream>
+#include <algorithm>
+#include <iostream>
 
-void TripAnalyzer::processLine(const std::string& line) {
-    if (line.empty()) return;
+void TripAnalyzer::processCsvLine(const std::string& lineContent) {
+    if (lineContent.empty()) return;
 
-    size_t comma1 = line.find(',');
-    if (comma1 == std::string::npos) return;
-    size_t comma2 = line.find(',', comma1 + 1);
-    if (comma2 == std::string::npos) return;
-    size_t comma3 = line.find(',', comma2 + 1);
-    if (comma3 == std::string::npos) return;
-    size_t comma4 = line.find(',', comma3 + 1);
-    if (comma4 == std::string::npos) return;
-    size_t comma5 = line.find(',', comma4 + 1);
-    if (comma5 == std::string::npos) return;
+    size_t firstCommaIndex = lineContent.find(',');
+    if (firstCommaIndex == std::string::npos) return;
 
-    if (comma2 - comma1 <= 1) return;
-    if (comma4 - comma3 <= 1) return;
+    size_t secondCommaIndex = lineContent.find(',', firstCommaIndex + 1);
+    if (secondCommaIndex == std::string::npos) return;
 
-    size_t searchStart = comma3 + 1;
-    size_t searchEnd = comma4;
-    size_t spacePos = line.find(' ', searchStart);
+    if (secondCommaIndex <= firstCommaIndex + 1) return;
+    std::string zoneIdentifier = lineContent.substr(firstCommaIndex + 1, secondCommaIndex - firstCommaIndex - 1);
 
-    if (spacePos == std::string::npos || spacePos >= searchEnd) return;
-    if (spacePos + 2 >= searchEnd) return;
+    size_t timeSearchStartIndex = secondCommaIndex + 1;
+    if (timeSearchStartIndex >= lineContent.size()) return;
 
-    char hourDigit1 = line[spacePos + 1];
-    char hourDigit2 = line[spacePos + 2];
+    char firstCharAfterSecondComma = lineContent[timeSearchStartIndex];
+    bool isStandardFormat = (firstCharAfterSecondComma >= '0' && firstCharAfterSecondComma <= '9');
 
-    if (hourDigit1 < '0' || hourDigit1 > '9' || hourDigit2 < '0' || hourDigit2 > '9') return;
-
-    int pickupHour = (hourDigit1 - '0') * 10 + (hourDigit2 - '0');
-    if (pickupHour > 23) return;
-
-    std::string pickupZoneID = line.substr(comma1 + 1, comma2 - comma1 - 1);
-    
-    ZoneStats& stats = data[pickupZoneID];
-    stats.total++;
-    stats.hours[pickupHour]++;
-}
-
-void TripAnalyzer::ingestStdin() {
-    std::ios_base::sync_with_stdio(false);
-    std::cin.tie(NULL);
-
-    std::string line;
-    if (!std::getline(std::cin, line)) return;
-    
-    while (std::getline(std::cin, line)) {
-        processLine(line);
-    }
-}
-
-void TripAnalyzer::ingestFile(const std::string& path) {
-    std::ifstream file(path);
-    if (!file.is_open()) return;
-
-    std::string line;
-    if (!std::getline(file, line)) return;
-
-    while (std::getline(file, line)) {
-        processLine(line);
-    }
-}
-
-std::vector<ZoneCount> TripAnalyzer::topZones(int k) {
-    std::vector<ZoneCount> result;
-    result.reserve(data.size());
-    for (const auto& pair : data) {
-        result.push_back({pair.first, pair.second.total});
+    if (!isStandardFormat) {
+        size_t thirdCommaIndex = lineContent.find(',', secondCommaIndex + 1);
+        if (thirdCommaIndex == std::string::npos) return;
+        timeSearchStartIndex = thirdCommaIndex + 1;
     }
 
-    auto comparator = [](const ZoneCount& a, const ZoneCount& b) {
-        if (a.count != b.count) return a.count > b.count;
-        return a.zone < b.zone;
-    };
+    if (timeSearchStartIndex >= lineContent.size()) return;
 
-    if (k < 0 || (size_t)k >= result.size()) {
-        std::sort(result.begin(), result.end(), comparator);
+    size_t spacePosition = lineContent.find(' ', timeSearchStartIndex);
+    if (spacePosition == std::string::npos) return;
+
+    if (spacePosition + 2 >= lineContent.size()) return;
+
+    char firstHourDigit = lineContent[spacePosition + 1];
+    char secondHourDigit = lineContent[spacePosition + 2];
+
+    int pickupHour = 0;
+
+    if (lineContent[spacePosition + 2] == ':') {
+        if (firstHourDigit < '0' || firstHourDigit > '9') return;
+        pickupHour = firstHourDigit - '0';
     } else {
-        std::partial_sort(result.begin(), result.begin() + k, result.end(), comparator);
-        result.resize(k);
+        if (firstHourDigit < '0' || firstHourDigit > '9' || secondHourDigit < '0' || secondHourDigit > '9') return;
+        pickupHour = (firstHourDigit - '0') * 10 + (secondHourDigit - '0');
     }
-    return result;
+
+    if (pickupHour < 0 || pickupHour > 23) return;
+
+    ZoneStatistics& statistics = zoneDataMap[zoneIdentifier];
+    statistics.totalTrips++;
+    statistics.tripsByHour[pickupHour]++;
 }
 
-std::vector<SlotCount> TripAnalyzer::topBusySlots(int k) {
-    std::vector<SlotCount> result;
-    for (const auto& pair : data) {
-        for (int h = 0; h < 24; ++h) {
-            if (pair.second.hours[h] > 0) {
-                result.push_back({pair.first, h, pair.second.hours[h]});
+void TripAnalyzer::ingestFile(const std::string& csvFilePath) {
+    std::ifstream inputFileStream(csvFilePath);
+    if (!inputFileStream.is_open()) return;
+
+    std::string currentLine;
+    if (!std::getline(inputFileStream, currentLine)) return;
+
+    while (std::getline(inputFileStream, currentLine)) {
+        processCsvLine(currentLine);
+    }
+}
+
+std::vector<ZoneCount> TripAnalyzer::topZones(int k) const {
+    std::vector<ZoneCount> zoneResults;
+    zoneResults.reserve(zoneDataMap.size());
+
+    for (const auto& mapEntry : zoneDataMap) {
+        zoneResults.push_back({mapEntry.first, mapEntry.second.totalTrips});
+    }
+
+    std::sort(zoneResults.begin(), zoneResults.end(), [](const ZoneCount& firstItem, const ZoneCount& secondItem) {
+        if (firstItem.count != secondItem.count) return firstItem.count > secondItem.count;
+        return firstItem.zone < secondItem.zone;
+    });
+
+    if (k >= 0 && (size_t)k < zoneResults.size()) {
+        zoneResults.resize(k);
+    }
+    return zoneResults;
+}
+
+std::vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
+    std::vector<SlotCount> slotResults;
+    slotResults.reserve(zoneDataMap.size() * 5);
+
+    for (const auto& mapEntry : zoneDataMap) {
+        for (int hourIndex = 0; hourIndex < 24; ++hourIndex) {
+            if (mapEntry.second.tripsByHour[hourIndex] > 0) {
+                slotResults.push_back({mapEntry.first, hourIndex, mapEntry.second.tripsByHour[hourIndex]});
             }
         }
     }
 
-    auto comparator = [](const SlotCount& a, const SlotCount& b) {
-        if (a.count != b.count) return a.count > b.count;
-        if (a.zone != b.zone) return a.zone < b.zone;
-        return a.hour < b.hour;
-    };
+    std::sort(slotResults.begin(), slotResults.end(), [](const SlotCount& firstItem, const SlotCount& secondItem) {
+        if (firstItem.count != secondItem.count) return firstItem.count > secondItem.count;
+        if (firstItem.zone != secondItem.zone) return firstItem.zone < secondItem.zone;
+        return firstItem.hour < secondItem.hour;
+    });
 
-    if (k < 0 || (size_t)k >= result.size()) {
-        std::sort(result.begin(), result.end(), comparator);
-    } else {
-        std::partial_sort(result.begin(), result.begin() + k, result.end(), comparator);
-        result.resize(k);
+    if (k >= 0 && (size_t)k < slotResults.size()) {
+        slotResults.resize(k);
     }
-    return result;
+    return slotResults;
 }
